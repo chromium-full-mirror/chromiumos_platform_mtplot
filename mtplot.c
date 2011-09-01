@@ -10,24 +10,15 @@
 #define _GNU_SOURCE // for asprintf
 
 
-#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <linux/version.h>
 #include <linux/input.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <X11/extensions/Xrandr.h>
 #include <X11/Xlib.h>
-#include <X11/Xlocale.h>
-#include <X11/Xos.h>
-#include <X11/Xproto.h>
-#include <X11/Xutil.h>
 
 #define BITS_PER_LONG (sizeof(long) * 8)
 #define NBITS(x) ((((x)-1)/BITS_PER_LONG)+1)
