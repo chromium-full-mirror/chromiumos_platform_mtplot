@@ -489,7 +489,6 @@ static Display *InitDisplay(const char *displayname) {
       break;
   }
 
-  // TODO: Catch Resize events and Update Geometry
   XGetGeometry(dpy, w, &root, &x, &y, &w_width, &w_height, &border_width,
                &depth);
 
@@ -774,11 +773,12 @@ static const struct option long_options[] = {
 int main(int argc, char **argv) {
   const char *device = NULL;
   char *displayname = NULL;
-  int fd;
   char *filename;
   struct input_event ev[64];
   int i, rd;
   struct mt_state mt_state;
+  int fd, x11_fd, max_fd;
+  fd_set rdfs;
 
   while (1) {
     int option_index = 0;
@@ -852,36 +852,66 @@ int main(int argc, char **argv) {
 
   MtStateInit(&mt_state);
 
-  while (1) {
-    rd = read(fd, ev, sizeof(struct input_event) * 64);
+  x11_fd = ConnectionNumber(dpy);
+  max_fd = (x11_fd > fd) ? x11_fd : fd;
 
-    if (rd < (int) sizeof(struct input_event)) {
-      printf("expected %d bytes, got %d\n",
-             (int) sizeof(struct input_event), rd);
-      perror("\nmtplot: error reading");
-      return 1;
+  while (1) {
+    int rc;
+
+    // Add device and X file descriptors to fd_set
+    FD_ZERO(&rdfs);
+    FD_SET(x11_fd, &rdfs);
+    FD_SET(fd, &rdfs);
+
+    rc = select(max_fd + 1, &rdfs, NULL, NULL, NULL);
+    if (rc == -1)
+      perror("select()");
+
+    if (FD_ISSET(fd, &rdfs)) {
+      rd = read(fd, ev, sizeof(struct input_event) * 64);
+
+      if (rd < (int) sizeof(struct input_event)) {
+        printf("expected %d bytes, got %d\n",
+               (int) sizeof(struct input_event), rd);
+        perror("\nmtplot: error reading");
+        return EXIT_FAILURE;
+      }
+
+      for (i = 0; i < rd / sizeof(struct input_event); i++) {
+        printf("Event: time %ld.%06ld, ", ev[i].time.tv_sec,
+               ev[i].time.tv_usec);
+
+        if (ev[i].type == EV_SYN) {
+          if (ev[i].code == SYN_MT_REPORT)
+            printf("++++++++++++++ %s ++++++++++++\n", syns[ev[i].code]);
+          else
+            printf("-------------- %s ------------\n", syns[ev[i].code]);
+        } else {
+          int type = ev[i].type;
+          int code = ev[i].code;
+          int value = ev[i].value;
+          printf("type %d (%s), code %d (%s), ", type, events[type] ?: "?",
+                 code, names[type] ? (names[type][code] ?: "?") : "?");
+          if (type == EV_MSC && (code == MSC_RAW || code == MSC_SCAN))
+            printf("value %02x\n", value);
+          else
+            printf("value %d\n", value);
+        }
+        MtStateUpdate(&mt_state, &ev[i]);
+      }
     }
 
-    for (i = 0; i < rd / sizeof(struct input_event); i++) {
-      printf("Event: time %ld.%06ld, ", ev[i].time.tv_sec, ev[i].time.tv_usec);
-
-      if (ev[i].type == EV_SYN) {
-        if (ev[i].code == SYN_MT_REPORT)
-          printf("++++++++++++++ %s ++++++++++++\n", syns[ev[i].code]);
-        else
-          printf("-------------- %s ------------\n", syns[ev[i].code]);
-      } else {
-        int type = ev[i].type;
-        int code = ev[i].code;
-        int value = ev[i].value;
-        printf("type %d (%s), code %d (%s), ", type, events[type] ?: "?", code,
-            names[type] ? (names[type][code] ?: "?") : "?");
-        if (type == EV_MSC && (code == MSC_RAW || code == MSC_SCAN))
-          printf("value %02x\n", value);
-        else
-          printf("value %d\n", value);
+    if (FD_ISSET(x11_fd, &rdfs)) {
+      while (XPending(dpy)) {
+        XEvent ev;
+        XNextEvent(dpy, &ev);
+        if (ev.type == ConfigureNotify) {
+          XConfigureEvent xce = ev.xconfigure;
+          // Save new window dimensions
+          w_width = xce.width;
+          w_height = xce.height;
+        }
       }
-      MtStateUpdate(&mt_state, &ev[i]);
     }
   }
 }
