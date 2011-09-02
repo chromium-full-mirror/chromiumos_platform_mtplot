@@ -836,10 +836,10 @@ int main(int argc, char **argv) {
   if (TestGrab(fd)) {
     printf("***********************************************\n");
     printf("  This device is grabbed by another process.\n");
-    printf("  No events are available to evtest while the\n");
+    printf("  No events are available to mtplot while the\n");
     printf("  other grab is active.\n");
     printf("  In most cases, this is caused by an X driver,\n");
-    printf("  try VT-switching and re-run evtest again.\n");
+    printf("  try VT-switching and re-run mtplot again.\n");
     printf("***********************************************\n");
   }
 
