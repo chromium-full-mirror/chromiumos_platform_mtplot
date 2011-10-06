@@ -464,7 +464,8 @@ static Display *InitDisplay(const char *displayname) {
 
   // Create a window
   w = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0,
-                          200, 100, 0, blackColor, blackColor);
+                          DisplayWidth(dpy, 0), DisplayHeight(dpy, 0),
+                          0, blackColor, blackColor);
 
   // We want to get MapNotify events
   XSelectInput(dpy, w, StructureNotifyMask);
