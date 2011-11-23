@@ -26,6 +26,7 @@
 #define BIT(x)  (1UL<<OFF(x))
 #define LONG(x) ((x)/BITS_PER_LONG)
 #define test_bit(bit, array)  ((array[LONG(bit)] >> OFF(bit)) & 1)
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
@@ -400,8 +401,6 @@ static const char * const * const names[EV_MAX + 1] = {
 };
 
 
-#define MT_SLOT_MAX 10
-
 struct mt_slot {
   int track_id;
   int touch_major;
@@ -417,7 +416,7 @@ struct mt_slot {
 
 struct mt_state {
   int current;
-  struct mt_slot slot[MT_SLOT_MAX];
+  struct mt_slot *slot;
 };
 
 static Display *dpy;
@@ -425,8 +424,7 @@ static unsigned long blackColor;
 static Window w;
 static GC gc;
 static Colormap colormap;
-static XColor color[MT_SLOT_MAX];
-const char * const color_str[MT_SLOT_MAX] = {
+const char * const color_str[] = {
   "#0000FF",  // Blue
   "#00FF00",  // Green
   "#FF0000",  // Red
@@ -438,7 +436,11 @@ const char * const color_str[MT_SLOT_MAX] = {
   "#804000",  // Brown
   "#808080",  // Grey
 };
+#define COLOR_COUNT ARRAY_SIZE(color_str)
+static XColor color[COLOR_COUNT];
 
+static int slot_min = 0;
+static int slot_max = 10;
 static int x_min = 0;
 static int x_max = 0;
 static int y_min = 0;
@@ -477,7 +479,7 @@ static Display *InitDisplay(const char *displayname) {
   gc = XCreateGC(dpy, w, 0, NULL);
 
   colormap = DefaultColormap(dpy, DefaultScreen(dpy));
-  for (i = 0; i< MT_SLOT_MAX; i++) {
+  for (i = 0; i < COLOR_COUNT; i++) {
     XParseColor(dpy, colormap, color_str[i], &color[i]);
     XAllocColor(dpy, colormap, &color[i]);
   }
@@ -522,7 +524,7 @@ static void MtSlotPaint(struct mt_slot *s) {
   y = (s->y - y_min) * w_height / (y_max - y_min) - (height - 1) / 2;
 
   // TODO: Get fancy and adjust color intensity using pressure
-  forecolor = color[s->track_id % MT_SLOT_MAX].pixel;
+  forecolor = color[s->track_id % COLOR_COUNT].pixel;
   XSetForeground(dpy, gc, forecolor);
 
   XFillArc(dpy, w, gc, x, y, width, height, 0, 360 * 64);
@@ -531,14 +533,15 @@ static void MtSlotPaint(struct mt_slot *s) {
 static void MtStateInit(struct mt_state *s) {
   int i;
   s->current = 0;
-  for (i = 0; i < MT_SLOT_MAX; i++)
-    MtSlotInit(&s->slot[i]);
+  s->slot = calloc(slot_max - slot_min + 1, sizeof(struct mt_slot));
+  for (i = slot_min; i <= slot_max; i++)
+    MtSlotInit(&s->slot[i - slot_min]);
 }
 
 static void MtStatePaint(struct mt_state *s) {
   int i;
-  for (i = 0; i < MT_SLOT_MAX; i++)
-    MtSlotPaint(&s->slot[i]);
+  for (i = slot_min; i <= slot_max; i++)
+    MtSlotPaint(&s->slot[i - slot_min]);
   XFlush(dpy);
 }
 
@@ -685,14 +688,18 @@ static void PrintAbsData(int fd, int axis) {
     if ((k < 3) || abs[k]) {
       printf("      %s %6d\n", absval[k], abs[k]);
       if (k == 1) {
-        if (axis == ABS_MT_POSITION_X)
+        if (axis == ABS_MT_SLOT)
+          slot_min = abs[k];
+        else if (axis == ABS_MT_POSITION_X)
           x_min = abs[k];
         else if (axis == ABS_MT_POSITION_Y)
           y_min = abs[k];
         else if (axis == ABS_MT_PRESSURE)
           pressure_min = abs[k];
       } else if (k == 2) {
-        if (axis == ABS_MT_POSITION_X)
+        if (axis == ABS_MT_SLOT)
+          slot_max = abs[k];
+        else if (axis == ABS_MT_POSITION_X)
           x_max = abs[k];
         else if (axis == ABS_MT_POSITION_Y)
           y_max = abs[k];
