@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <X11/Xlib.h>
 
 #define BITS_PER_LONG (sizeof(long) * 8)
@@ -27,6 +28,8 @@
 #define LONG(x) ((x)/BITS_PER_LONG)
 #define test_bit(bit, array)  ((array[LONG(bit)] >> OFF(bit)) & 1)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define LONG_BITS (sizeof(long) * 8)
+#define NLONGS(x) (((x) + LONG_BITS - 1) / LONG_BITS)
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
@@ -448,6 +451,8 @@ static int y_max = 0;
 static int pressure_min = 0;
 static int pressure_max = 255;
 
+static bool semi_mt_device = false;
+
 static unsigned int w_width;
 static unsigned int w_height;
 
@@ -511,7 +516,7 @@ static void MtSlotPaint(struct mt_slot *s) {
   unsigned int width, height;
   unsigned long forecolor;
 
-  if (s->track_id == -1 || s->pressure == 0)
+  if ((s->track_id == -1) || (s->pressure == 0))
     return;
 
   // TODO: Get really fancy and use touch_minor & orientation
@@ -555,6 +560,17 @@ static void ProcessKey(struct mt_state *s, struct input_event *e) {
     XClearWindow(dpy, w);
 }
 
+// Update all active slots with the same ABS_PRESSURE value as it is a
+// semi-mt device.
+static void UpdateWithAbsPressure(struct mt_state *s, struct input_event *e) {
+  int i;
+  for (i = slot_min; i <= slot_max; i++) {
+    struct mt_slot *slt = &s->slot[i];
+    if (slt->track_id != -1)
+      slt->pressure = e->value;
+  }
+}
+
 static void ProcessAbs(struct mt_state *s, struct input_event *e) {
   struct mt_slot *slot = &s->slot[s->current];
 
@@ -593,6 +609,10 @@ static void ProcessAbs(struct mt_state *s, struct input_event *e) {
       break;
     case ABS_MT_PRESSURE:
       slot->pressure = e->value;
+      break;
+    case ABS_PRESSURE:
+      if (semi_mt_device)
+        UpdateWithAbsPressure(s, e);
       break;
     default:
       break;
@@ -696,6 +716,8 @@ static void PrintAbsData(int fd, int axis) {
           y_min = abs[k];
         else if (axis == ABS_MT_PRESSURE)
           pressure_min = abs[k];
+        else if (axis == ABS_PRESSURE)
+          pressure_min = abs[k];
       } else if (k == 2) {
         if (axis == ABS_MT_SLOT)
           slot_max = abs[k];
@@ -705,8 +727,25 @@ static void PrintAbsData(int fd, int axis) {
           y_max = abs[k];
         else if (axis == ABS_MT_PRESSURE)
           pressure_max = abs[k];
+        else if (axis == ABS_PRESSURE)
+          pressure_max = abs[k];
       }
     }
+}
+
+// Test if the INPUT_PROP_SEMI_MT bit is set. If so, we will retrieve the
+// pressure value from the element ABS_PRESSURE instead.
+//
+// @param fd The file descriptor to the device.
+// @return true if the bit INPUT_PROP_SEMI_MT is set, or zero otherwise.
+static bool IsSemiMtDevice(int fd) {
+  unsigned long prop_bitmask[NLONGS(INPUT_PROP_CNT)];
+  int len = ioctl(fd, EVIOCGPROP(sizeof(prop_bitmask)), prop_bitmask);
+  if (len < 0) {
+    printf("get properties error: %s\n", strerror(errno));
+    return false;
+  }
+  return test_bit(INPUT_PROP_SEMI_MT, prop_bitmask);
 }
 
 // Print static device information (no events). This information includes
@@ -838,6 +877,9 @@ int main(int argc, char **argv) {
 
   if (PrintDeviceInfo(fd))
     return EXIT_FAILURE;
+
+  if (IsSemiMtDevice(fd))
+    semi_mt_device = true;
 
   printf("Testing ... (interrupt to exit)\n");
 
