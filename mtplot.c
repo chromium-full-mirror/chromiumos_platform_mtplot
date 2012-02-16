@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
 #include <X11/Xlib.h>
 
 #define BITS_PER_LONG (sizeof(long) * 8)
@@ -42,6 +43,11 @@
 #endif
 #ifndef ABS_MT_SLOT
 #define ABS_MT_SLOT 47
+#endif
+
+/* Set clockid to be used for timestamps */
+#ifndef EVIOCSCLOCKID
+#define EVIOCSCLOCKID  _IOW('E', 0xa0, int)
 #endif
 
 #define NAME_ELEMENT(element) [element] = #element
@@ -689,7 +695,8 @@ static char *ScanDevices(void) {
 // Print usage information.
 static int Usage(void) {
   printf("USAGE:\n");
-  printf("   %s /dev/input/eventX\n", program_invocation_short_name);
+  printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic]\n",
+         program_invocation_short_name);
 
   return EXIT_FAILURE;
 }
@@ -812,8 +819,17 @@ static int TestGrab(int fd) {
   return rc;
 }
 
+static void EnableMonotonicTimestamps(int fd)
+{
+  unsigned int clk = CLOCK_MONOTONIC;
+  int ret = ioctl(fd, EVIOCSCLOCKID, &clk);
+  if (ret < 0)
+    fprintf(stderr, "Monotonic timestamps not supported in this kernel.\n");
+}
+
 static const struct option long_options[] = {
   { "display", required_argument, NULL, 'd' },
+  { "monotonic", optional_argument, NULL, 'm' },
   { 0, },
 };
 
@@ -826,6 +842,7 @@ int main(int argc, char **argv) {
   struct mt_state mt_state;
   int fd, x11_fd, max_fd;
   fd_set rdfs;
+  bool monotonic_timestamps = false;
 
   while (1) {
     int option_index = 0;
@@ -835,6 +852,9 @@ int main(int argc, char **argv) {
     switch (c) {
       case 'd':
         displayname = optarg;
+        break;
+      case 'm':
+        monotonic_timestamps = true;
         break;
       default:
         return Usage();
@@ -880,6 +900,9 @@ int main(int argc, char **argv) {
 
   if (IsSemiMtDevice(fd))
     semi_mt_device = true;
+
+  if (monotonic_timestamps)
+    EnableMonotonicTimestamps(fd);
 
   printf("Testing ... (interrupt to exit)\n");
 
