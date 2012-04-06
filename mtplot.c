@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
+#include <X11/keysym.h>
 #include <X11/Xlib.h>
 
 #define BITS_PER_LONG (sizeof(long) * 8)
@@ -481,7 +482,7 @@ static Display *InitDisplay(const char *displayname) {
                           0, blackColor, blackColor);
 
   // We want to get MapNotify events
-  XSelectInput(dpy, w, StructureNotifyMask);
+  XSelectInput(dpy, w, StructureNotifyMask | KeyPressMask);
 
   // "Map" the window (that is, make it appear on the screen)
   XMapWindow(dpy, w);
@@ -984,6 +985,11 @@ int main(int argc, char **argv) {
           // Save new window dimensions
           w_width = xce.width;
           w_height = xce.height;
+        } else if (ev.type == KeyPress) {
+          XKeyEvent xke = ev.xkey;
+          KeySym ks = XLookupKeysym(&xke, 0);
+          if (ks == XK_Escape)
+            XClearWindow(dpy, w);
         }
       }
     }
