@@ -3,6 +3,6 @@
 
 bin_PROGRAMS = mtplot
 
-mtplot_LDADD = $(MTPLOT_LIBS)
+mtplot_LDADD = $(X11_LIBS)
 
 EXTRA_DIST = INSTALL
