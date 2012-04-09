@@ -429,6 +429,9 @@ struct mt_state {
   struct mt_slot *slot;
 };
 
+// Program Options
+bool monotonic = true;
+
 static Display *dpy;
 static unsigned long blackColor;
 static Window w;
@@ -830,6 +833,11 @@ static int Usage(void) {
   printf("USAGE:\n");
   printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic]\n",
          program_invocation_short_name);
+  printf("\n");
+  printf(" -m, --monotonic[=0|1]  =1: requests input events with monotonic timestamps\n"
+         "                            if supported by the kernel (default)\n"
+         "                        =0: request input events with wallclock timestamps\n");
+
   return EXIT_FAILURE;
 }
 
@@ -842,11 +850,9 @@ int main(int argc, char **argv) {
   struct mt_state mt_state;
   int fd, x11_fd, max_fd;
   fd_set rdfs;
-  bool monotonic_timestamps = false;
 
   while (1) {
-    int option_index = 0;
-    int c = getopt_long_only(argc, argv, "d:", long_options, &option_index);
+    int c = getopt_long_only(argc, argv, "d:m:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
@@ -854,7 +860,7 @@ int main(int argc, char **argv) {
         displayname = optarg;
         break;
       case 'm':
-        monotonic_timestamps = true;
+        monotonic = (optarg) ? atoi(optarg) : true;
         break;
       default:  // Fall through case
         printf("Unknown option '%c'\n", c);
@@ -903,7 +909,7 @@ int main(int argc, char **argv) {
   if (IsSemiMtDevice(fd))
     semi_mt_device = true;
 
-  if (monotonic_timestamps)
+  if (monotonic)
     EnableMonotonicTimestamps(fd);
 
   printf("Testing ... (interrupt to exit)\n");
