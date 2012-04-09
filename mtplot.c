@@ -692,15 +692,6 @@ static char *ScanDevices(void) {
   return filename;
 }
 
-// Print usage information.
-static int Usage(void) {
-  printf("USAGE:\n");
-  printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic]\n",
-         program_invocation_short_name);
-
-  return EXIT_FAILURE;
-}
-
 // Print additional information for absolute axes (min/max, current value,
 // etc.).
 //
@@ -833,6 +824,14 @@ static const struct option long_options[] = {
   { 0, },
 };
 
+// Print usage information.
+static int Usage(void) {
+  printf("USAGE:\n");
+  printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic]\n",
+         program_invocation_short_name);
+  return EXIT_FAILURE;
+}
+
 int main(int argc, char **argv) {
   const char *device = NULL;
   char *displayname = NULL;
@@ -856,7 +855,9 @@ int main(int argc, char **argv) {
       case 'm':
         monotonic_timestamps = true;
         break;
-      default:
+      default:  // Fall through case
+        printf("Unknown option '%c'\n", c);
+      case '?':
         return Usage();
     }
   }
