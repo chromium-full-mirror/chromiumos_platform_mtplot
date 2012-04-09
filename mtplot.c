@@ -431,6 +431,7 @@ struct mt_state {
 
 // Program Options
 bool monotonic = true;
+bool persist = true;
 
 static Display *dpy;
 static unsigned long blackColor;
@@ -555,6 +556,8 @@ static void MtStateInit(struct mt_state *s) {
 
 static void MtStatePaint(struct mt_state *s) {
   int i;
+  if (!persist)
+    XClearWindow(dpy, w);
   for (i = slot_min; i <= slot_max; i++)
     MtSlotPaint(&s->slot[i - slot_min]);
   XFlush(dpy);
@@ -825,18 +828,22 @@ static void EnableMonotonicTimestamps(int fd)
 static const struct option long_options[] = {
   { "display", required_argument, NULL, 'd' },
   { "monotonic", optional_argument, NULL, 'm' },
+  { "persist", optional_argument, NULL, 'p' },
   { 0, },
 };
 
 // Print usage information.
 static int Usage(void) {
   printf("USAGE:\n");
-  printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic]\n",
+  printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic] [--persist]\n",
          program_invocation_short_name);
   printf("\n");
   printf(" -m, --monotonic[=0|1]  =1: requests input events with monotonic timestamps\n"
          "                            if supported by the kernel (default)\n"
          "                        =0: request input events with wallclock timestamps\n");
+  printf(" -p, --persist[=0|1]    =1: display persistent trails for each contact (default)\n"
+         "                        =0: only display the current contact positions\n"
+         "                            To toggle at runtime press 'p'\n");
 
   return EXIT_FAILURE;
 }
@@ -852,7 +859,7 @@ int main(int argc, char **argv) {
   fd_set rdfs;
 
   while (1) {
-    int c = getopt_long_only(argc, argv, "d:m:", long_options, NULL);
+    int c = getopt_long_only(argc, argv, "d:m:p:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
@@ -861,6 +868,9 @@ int main(int argc, char **argv) {
         break;
       case 'm':
         monotonic = (optarg) ? atoi(optarg) : true;
+        break;
+      case 'p':
+        persist = (optarg) ? atoi(optarg) : true;
         break;
       default:  // Fall through case
         printf("Unknown option '%c'\n", c);
@@ -996,6 +1006,8 @@ int main(int argc, char **argv) {
           KeySym ks = XLookupKeysym(&xke, 0);
           if (ks == XK_Escape)
             XClearWindow(dpy, w);
+          else if (ks == XK_p)
+            persist = !persist;
         }
       }
     }
