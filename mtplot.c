@@ -461,8 +461,11 @@ static int y_min = 0;
 static int y_max = 0;
 static int pressure_min = 0;
 static int pressure_max = 255;
+static int touch_major_min = 0;
+static int touch_major_max = 255;
 
 static bool semi_mt_device = false;
+static bool has_mt_slot = false;
 
 static unsigned int w_width;
 static unsigned int w_height;
@@ -527,13 +530,21 @@ static void MtSlotPaint(struct mt_slot *s) {
   unsigned int width, height;
   unsigned long forecolor;
 
-  if ((s->track_id == -1) || (s->pressure == 0))
+  if (s->track_id == -1)
     return;
 
-  // TODO: Get really fancy and use touch_minor & orientation
-  // TODO: Get really really fancy, and use 'width_*'
-  width = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
-  height = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
+  if (s->pressure) {
+    // TODO: Get really fancy and use touch_minor & orientation
+    // TODO: Get really really fancy, and use 'width_*'
+    width = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
+    height = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
+  } else {
+    // In case we don't have pressure reading, use touch_major instead.
+    width = 50 * (s->touch_major - touch_major_min) /
+        (touch_major_max - touch_major_min);
+    height = 50 * (s->touch_major - touch_major_min) /
+        (touch_major_max - touch_major_min);
+  }
 
   // TODO: Update x/y_min/max on window resize
   x = (s->x - x_min) * w_width / (x_max - x_min) - (width - 1) / 2;
@@ -584,6 +595,23 @@ static void UpdateWithAbsPressure(struct mt_state *s, struct input_event *e) {
   }
 }
 
+// Associate the track ID with slot number.
+static int track_id_to_slot(struct mt_state *s, int track_id) {
+  int i;
+  // For existing track ID, return its associated slot.
+  for (i = slot_min; i <= slot_max; i++)
+    if (s->slot[i].track_id == track_id)
+      return i;
+
+  // For new track ID, return a free slot.
+  for (i = slot_min; i <= slot_max; i++)
+    if (s->slot[i].track_id == -1)
+      return i;
+
+  perror("No free slot for for new track_id");
+  return slot_min;
+}
+
 static void ProcessAbs(struct mt_state *s, struct input_event *e) {
   struct mt_slot *slot = &s->slot[s->current];
 
@@ -592,6 +620,10 @@ static void ProcessAbs(struct mt_state *s, struct input_event *e) {
       s->current = e->value;
       break;
     case ABS_MT_TOUCH_MAJOR:
+      // If there is no ABS_MT_SLOT support, use a 0 touch major as
+      // the indication of removed touch contact.
+      if (!has_mt_slot && e->value == 0)
+        slot->track_id = -1;
       slot->touch_major = e->value;
       break;
     case ABS_MT_TOUCH_MINOR:
@@ -618,6 +650,13 @@ static void ProcessAbs(struct mt_state *s, struct input_event *e) {
     case ABS_MT_BLOB_ID:
       break;
     case ABS_MT_TRACKING_ID:
+      // If there is no ABS_MT_SLOT support, use ABS_MT_TRACKING_ID as
+      // replacement. If new ABS_MT_TRACKING_ID is received, update the
+      // current slot to be the one associated with the new track ID.
+      if (!has_mt_slot && e->value >= 0) {
+        s->current = track_id_to_slot(s, e->value);
+        slot = &s->slot[s->current];
+      }
       slot->track_id = e->value;
       break;
     case ABS_MT_PRESSURE:
@@ -723,6 +762,8 @@ static void PrintAbsData(int fd, int axis) {
           pressure_min = abs[k];
         else if (axis == ABS_PRESSURE)
           pressure_min = abs[k];
+        else if (axis == ABS_MT_TOUCH_MAJOR)
+          touch_major_min = abs[k];
       } else if (k == 2) {
         if (axis == ABS_MT_SLOT)
           slot_max = abs[k];
@@ -734,6 +775,8 @@ static void PrintAbsData(int fd, int axis) {
           pressure_max = abs[k];
         else if (axis == ABS_PRESSURE)
           pressure_max = abs[k];
+        else if (axis == ABS_MT_TOUCH_MAJOR)
+          touch_major_max = abs[k];
       }
     }
 }
@@ -794,8 +837,11 @@ static int PrintDeviceInfo(int fd) {
         if (test_bit(j, bit[i])) {
           printf("    Event code %d (%s)\n", j,
                  names[i] ? (names[i][j] ? names[i][j] : "?") : "?");
-          if (i == EV_ABS)
+          if (i == EV_ABS) {
             PrintAbsData(fd, j);
+            if (j == ABS_MT_SLOT)
+              has_mt_slot = true;
+          }
         }
     }
 
