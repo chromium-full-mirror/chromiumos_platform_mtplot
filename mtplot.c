@@ -464,7 +464,7 @@ static int pressure_max = 255;
 static int touch_major_min = 0;
 static int touch_major_max = 255;
 
-static bool semi_mt_device = false;
+static bool single_pressure_device;
 static bool has_mt_slot = false;
 
 static unsigned int w_width;
@@ -663,7 +663,7 @@ static void ProcessAbs(struct mt_state *s, struct input_event *e) {
       slot->pressure = e->value;
       break;
     case ABS_PRESSURE:
-      if (semi_mt_device)
+      if (single_pressure_device)
         UpdateWithAbsPressure(s, e);
       break;
     default:
@@ -781,19 +781,16 @@ static void PrintAbsData(int fd, int axis) {
     }
 }
 
-// Test if the INPUT_PROP_SEMI_MT bit is set. If so, we will retrieve the
-// pressure value from the element ABS_PRESSURE instead.
+// Test if the device supports single-pressure value only. If so, we will
+// retrieve the pressure value from the element ABS_PRESSURE instead.
 //
 // @param fd The file descriptor to the device.
-// @return true if the bit INPUT_PROP_SEMI_MT is set, or zero otherwise.
-static bool IsSemiMtDevice(int fd) {
-  unsigned long prop_bitmask[NLONGS(INPUT_PROP_CNT)];
-  int len = ioctl(fd, EVIOCGPROP(sizeof(prop_bitmask)), prop_bitmask);
-  if (len < 0) {
-    printf("get properties error: %s\n", strerror(errno));
-    return false;
-  }
-  return test_bit(INPUT_PROP_SEMI_MT, prop_bitmask);
+// @return false if the bit ABS_MT_PRESSURE is set, or true otherwise.
+static bool IsSinglePressureDevice(int fd) {
+  unsigned long bits[NBITS(KEY_MAX)];
+  memset(bits, 0, sizeof(bits));
+  ioctl(fd, EVIOCGBIT(EV_ABS, EV_MAX), bits);
+  return (!test_bit(ABS_MT_PRESSURE, bits) && test_bit(ABS_PRESSURE, bits));
 }
 
 // Print static device information (no events). This information includes
@@ -962,8 +959,7 @@ int main(int argc, char **argv) {
   if (PrintDeviceInfo(fd))
     return EXIT_FAILURE;
 
-  if (IsSemiMtDevice(fd))
-    semi_mt_device = true;
+  single_pressure_device = IsSinglePressureDevice(fd);
 
   if (monotonic)
     EnableMonotonicTimestamps(fd);
