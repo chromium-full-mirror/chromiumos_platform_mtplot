@@ -430,6 +430,7 @@ struct mt_state {
 };
 
 // Program Options
+bool clickclear = true;
 bool monotonic = true;
 bool persist = true;
 
@@ -580,7 +581,7 @@ static void ProcessSynReport(struct mt_state *s, struct input_event *e) {
 
 
 static void ProcessKey(struct mt_state *s, struct input_event *e) {
-  if (e->code == BTN_LEFT)
+  if (e->code == BTN_LEFT && clickclear)
     XClearWindow(dpy, w);
 }
 
@@ -869,6 +870,7 @@ static void EnableMonotonicTimestamps(int fd)
 }
 
 static const struct option long_options[] = {
+  { "clickclear", optional_argument, NULL, 'c' },
   { "display", required_argument, NULL, 'd' },
   { "monotonic", optional_argument, NULL, 'm' },
   { "persist", optional_argument, NULL, 'p' },
@@ -887,6 +889,9 @@ static int Usage(void) {
   printf(" -p, --persist[=0|1]    =1: display persistent trails for each contact (default)\n"
          "                        =0: only display the current contact positions\n"
          "                            To toggle at runtime press 'p'\n");
+  printf(" -c, --clickclear[=0|1] =1: clicks clear the screen (default)\n"
+         "                        =0: clicks do not clear the screen\n"
+         "                            To toggle at runtime press 'c'\n");
 
   return EXIT_FAILURE;
 }
@@ -902,10 +907,13 @@ int main(int argc, char **argv) {
   fd_set rdfs;
 
   while (1) {
-    int c = getopt_long_only(argc, argv, "d:m:p:", long_options, NULL);
+    int c = getopt_long_only(argc, argv, "c:d:m:p:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
+      case 'c':
+        clickclear = (optarg) ? atoi(optarg) : true;
+        break;
       case 'd':
         displayname = optarg;
         break;
@@ -1048,6 +1056,8 @@ int main(int argc, char **argv) {
           KeySym ks = XLookupKeysym(&xke, 0);
           if (ks == XK_Escape)
             XClearWindow(dpy, w);
+          else if (ks == XK_c)
+            clickclear = !clickclear;
           else if (ks == XK_p)
             persist = !persist;
         }
