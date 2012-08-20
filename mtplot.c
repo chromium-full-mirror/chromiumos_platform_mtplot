@@ -471,7 +471,7 @@ static bool has_mt_slot = false;
 static unsigned int w_width;
 static unsigned int w_height;
 
-static Display *InitDisplay(const char *displayname) {
+static Display *InitDisplay(const char *displayname, const char *geometry) {
   Window root;
   int x, y;
   unsigned int border_width;
@@ -484,9 +484,15 @@ static Display *InitDisplay(const char *displayname) {
 
   blackColor = BlackPixel(dpy, DefaultScreen(dpy));
 
+  // Determine the window geometry
+  if (!geometry || XParseGeometry(geometry, &x, &y, &w_width, &w_height) == 0) {
+    x = y = 0;
+    w_width = DisplayWidth(dpy, 0);
+    w_height = DisplayHeight(dpy, 0);
+  }
+
   // Create a window
-  w = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0,
-                          DisplayWidth(dpy, 0), DisplayHeight(dpy, 0),
+  w = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), x, y, w_width, w_height,
                           0, blackColor, blackColor);
 
   // We want to get MapNotify events
@@ -872,6 +878,7 @@ static void EnableMonotonicTimestamps(int fd)
 static const struct option long_options[] = {
   { "clickclear", optional_argument, NULL, 'c' },
   { "display", required_argument, NULL, 'd' },
+  { "geometry", optional_argument, NULL, 'g' },
   { "monotonic", optional_argument, NULL, 'm' },
   { "persist", optional_argument, NULL, 'p' },
   { 0, },
@@ -883,6 +890,8 @@ static int Usage(void) {
   printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic] [--persist]\n",
          program_invocation_short_name);
   printf("\n");
+  printf(" -g, --geometry[=wxh+x+y] : sets the window geometry\n");
+  printf("                            e.g., 1280x800+0+0\n");
   printf(" -m, --monotonic[=0|1]  =1: requests input events with monotonic timestamps\n"
          "                            if supported by the kernel (default)\n"
          "                        =0: request input events with wallclock timestamps\n");
@@ -900,6 +909,7 @@ int main(int argc, char **argv) {
   const char *device = NULL;
   char *displayname = NULL;
   char *filename;
+  char *geometry;
   struct input_event ev[64];
   int i, rd;
   struct mt_state mt_state;
@@ -907,7 +917,7 @@ int main(int argc, char **argv) {
   fd_set rdfs;
 
   while (1) {
-    int c = getopt_long_only(argc, argv, "c:d:m:p:", long_options, NULL);
+    int c = getopt_long_only(argc, argv, "c:d:g:m:p:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
@@ -916,6 +926,9 @@ int main(int argc, char **argv) {
         break;
       case 'd':
         displayname = optarg;
+        break;
+      case 'g':
+        geometry = optarg;
         break;
       case 'm':
         monotonic = (optarg) ? atoi(optarg) : true;
@@ -984,7 +997,7 @@ int main(int argc, char **argv) {
     printf("***********************************************\n");
   }
 
-  dpy = InitDisplay(displayname);
+  dpy = InitDisplay(displayname, geometry);
   if (!dpy) {
     fprintf (stderr, "mtplot:  unable to open display '%s'\n",
              XDisplayName (displayname));
