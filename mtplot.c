@@ -513,6 +513,9 @@ static Display *InitDisplay(const char *displayname, const char *geometry) {
   w = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), x, y, w_width, w_height,
                           0, blackColor, blackColor);
 
+  // Set the application name so that it is easier to look up in window manager.
+  XStoreName(dpy, w, "mtplot");
+
   // We want to get MapNotify events
   XSelectInput(dpy, w, StructureNotifyMask | KeyPressMask);
 
