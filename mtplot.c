@@ -14,12 +14,17 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <limits.h>
 #include <linux/input.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
 
@@ -54,6 +59,10 @@
 #endif
 
 #define NAME_ELEMENT(element) [element] = #element
+
+// Define the access permission of the screenshot output directory.
+#define OUTPUT_DIR_MODE (S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)
+#define DEFAULT_OUTPUT_DIR "/tmp"
 
 static const char * const events[EV_MAX + 1] = {
   [0 ... EV_MAX] = NULL,
@@ -900,6 +909,48 @@ static int TestGrab(int fd) {
   return rc;
 }
 
+// Dump the screen shot
+//
+// @param displayname The display name.
+// @param w The mtplot window.
+// @param output The screenshot output directory.
+static void DumpScreenShot(char *displayname, Window w, char *output) {
+  char display_str[16];
+  char filename[PATH_MAX];
+  char dump_str[PATH_MAX + 64];
+  char command[PATH_MAX + 128];
+  XID wid = (XID) w;
+  char *xauthority_str = "XAUTHORITY=/home/chronos/.Xauthority ";
+  struct timeval curr_time;
+
+  if (system("which import > /dev/null 2>&1") != 0) {
+    printf("Warning: The screenshot executable (import) does not exist.\n");
+    return;
+  }
+
+  // If the display is not specified as a command line option, get it
+  // from the environment.
+  if (displayname == NULL)
+    displayname = getenv("DISPLAY");
+  sprintf(display_str, "DISPLAY=%s ", displayname);
+
+  // The screenshot file name could be distinguished with the last event time.
+  gettimeofday(&curr_time, NULL);
+  sprintf(filename, "%s/mtplot_%ld.%06ld.png", output, curr_time.tv_sec,
+          curr_time.tv_usec);
+
+  // Use the "import" utility to dump the mtplot window.
+  sprintf(dump_str, "import -window %ld %s", wid, filename);
+
+  strcpy(command, display_str);
+  strcat(command, xauthority_str);
+  strcat(command, dump_str);
+  if (system(command) == 0)
+    printf("The screenshot is saved as '%s'\n", filename);
+  else
+    perror("import command error");
+}
+
 static void EnableMonotonicTimestamps(int fd)
 {
   unsigned int clk = CLOCK_MONOTONIC;
@@ -913,9 +964,70 @@ static const struct option long_options[] = {
   { "display", required_argument, NULL, 'd' },
   { "geometry", optional_argument, NULL, 'g' },
   { "monotonic", optional_argument, NULL, 'm' },
+  { "output", optional_argument, NULL, 'o' },
   { "persist", optional_argument, NULL, 'p' },
   { 0, },
 };
+
+// Create the specified directory.
+int MkDir(char *dir, int mode) {
+  struct stat st;
+
+  if (stat(dir, &st) != 0 && mkdir(dir, mode) != 0) {
+      perror("Error in making screenshot output directory");
+      return false;
+  }
+  return true;
+}
+
+// Create intermediate directories.
+int MkDirs(char *path, int mode) {
+  char int_path[PATH_MAX];
+  char *p = strcpy(int_path, path);
+
+  // Skip the initial '/' if any.
+  while (*p == '/')
+    p++;
+
+  // Make the intermediate directories if not existing yet.
+  while (p = strchr(p, '/')) {
+    *p = '\0';
+    if (!MkDir(int_path, mode))
+      return false;
+    *p++ = '/';
+  }
+
+  // Need to mkdir the full path too.
+  return MkDir(path, mode);
+}
+
+// Check if it has the write access to the specified directory.
+// Create the intermediate directories if needed.
+//
+// @param output The screenshot output directory.
+bool CheckDirectory(char *output) {
+  struct stat st;
+
+  // Check if output already exists.
+  if (stat(output, &st) == 0) {
+    // Check if output is a regular directory.
+    if (S_ISDIR(st.st_mode)) {
+      // check its write permission.
+      if (st.st_mode & S_IWUSR) {
+        return true;
+      } else {
+        printf("Error: no write permission to '%s'.\n", output);
+        return false;
+      }
+    } else {
+      printf("Error: the output '%s' must be a directory.\n", output);
+      return false;
+    }
+  } else {
+    // Try to create the output directory if it does not exist yet.
+    return MkDirs(output, OUTPUT_DIR_MODE);
+  }
+}
 
 // Print usage information.
 static int Usage(void) {
@@ -928,6 +1040,8 @@ static int Usage(void) {
   printf(" -m, --monotonic[=0|1]  =1: requests input events with monotonic timestamps\n"
          "                            if supported by the kernel (default)\n"
          "                        =0: request input events with wallclock timestamps\n");
+  printf(" -o, --output[=<dir>]     : specifies the screenshot output directory\n"
+         "                            (default: /tmp)\n");
   printf(" -p, --persist[=0|1]    =1: display persistent trails for each contact (default)\n"
          "                        =0: only display the current contact positions\n"
          "                            To toggle at runtime press 'p'\n");
@@ -948,9 +1062,12 @@ int main(int argc, char **argv) {
   struct mt_state mt_state;
   int fd, x11_fd, max_fd;
   fd_set rdfs;
+  char output[PATH_MAX];
+
+  strcpy(output, DEFAULT_OUTPUT_DIR);
 
   while (1) {
-    int c = getopt_long_only(argc, argv, "c:d:g:m:p:", long_options, NULL);
+    int c = getopt_long_only(argc, argv, "c:d:g:m:o:p:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
@@ -965,6 +1082,11 @@ int main(int argc, char **argv) {
         break;
       case 'm':
         monotonic = (optarg) ? atoi(optarg) : true;
+        break;
+      case 'o':
+        strcpy(output, optarg);
+        if (!CheckDirectory(output))
+          return EXIT_FAILURE;
         break;
       case 'p':
         persist = (optarg) ? atoi(optarg) : true;
@@ -1109,6 +1231,8 @@ int main(int argc, char **argv) {
             persist = !persist;
           else if (ks == XK_q)
             return 0;
+          else if (ks == XK_s)
+            DumpScreenShot(displayname, w, output);
         }
       }
     }
