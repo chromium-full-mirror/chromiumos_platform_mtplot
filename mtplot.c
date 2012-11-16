@@ -33,6 +33,8 @@
 #define LONG_BITS (sizeof(long) * 8)
 #define NLONGS(x) (((x) + LONG_BITS - 1) / LONG_BITS)
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
 
@@ -453,9 +455,11 @@ const char * const color_str[] = {
 };
 #define COLOR_COUNT ARRAY_SIZE(color_str)
 static XColor color[COLOR_COUNT];
+#define WHITE_INDEX 6
 
 static int slot_min = 0;
 static int slot_max = 10;
+// TODO: Update x/y_min/max on window resize
 static int x_min = 0;
 static int x_max = 0;
 static int y_min = 0;
@@ -464,6 +468,11 @@ static int pressure_min = 0;
 static int pressure_max = 255;
 static int touch_major_min = 0;
 static int touch_major_max = 255;
+
+// For aspect ratio preservation
+static float pad_to_pixel = 1.0;
+static int pad_x_offset = 0;
+static int pad_y_offset = 0;
 
 static bool single_pressure_device;
 static bool has_mt_slot = false;
@@ -532,9 +541,26 @@ static void MtSlotInit(struct mt_slot *s) {
   s->track_id = -1;
 }
 
+static void InitPreserveRatio() {
+  float pad_width= x_max - x_min + 1;
+  float pad_height = y_max - y_min + 1;
+
+  // Compute pad to window scaling factors
+  float pad_x_scale = w_width / pad_width;
+  float pad_y_scale = w_height / pad_height;
+  // Choose smaller scaling factor for both x & y
+  pad_to_pixel = MIN(pad_x_scale, pad_y_scale);
+  // Resulting pixel sizes:
+  float pad_pixel_width = pad_width * pad_to_pixel;
+  float pad_pixel_height = pad_height * pad_to_pixel;
+  // Compute offsets to center pad in window
+  pad_x_offset = (w_width - pad_pixel_width) / 2;
+  pad_y_offset = (w_height - pad_pixel_height) / 2;
+}
+
 static void MtSlotPaint(struct mt_slot *s) {
-  int x, y;
-  unsigned int width, height;
+  int x_pixel, y_pixel;
+  float width, height;
   unsigned long forecolor;
 
   if (s->track_id == -1)
@@ -543,25 +569,26 @@ static void MtSlotPaint(struct mt_slot *s) {
   if (s->pressure) {
     // TODO: Get really fancy and use touch_minor & orientation
     // TODO: Get really really fancy, and use 'width_*'
-    width = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
-    height = 50 * (s->pressure - pressure_min) / (pressure_max - pressure_min);
+    width = 50.0 *
+        (float)(s->pressure - pressure_min) / (pressure_max - pressure_min + 1);
+    height = 50.0 *
+        (float)(s->pressure - pressure_min) / (pressure_max - pressure_min + 1);
   } else {
     // In case we don't have pressure reading, use touch_major instead.
-    width = 50 * (s->touch_major - touch_major_min) /
-        (touch_major_max - touch_major_min);
-    height = 50 * (s->touch_major - touch_major_min) /
-        (touch_major_max - touch_major_min);
+    width = 50.0 * (float)(s->touch_major - touch_major_min) /
+        (touch_major_max - touch_major_min + 1);
+    height = 50.0 * (float)(s->touch_major - touch_major_min) /
+        (touch_major_max - touch_major_min + 1);
   }
 
-  // TODO: Update x/y_min/max on window resize
-  x = (s->x - x_min) * w_width / (x_max - x_min) - (width - 1) / 2;
-  y = (s->y - y_min) * w_height / (y_max - y_min) - (height - 1) / 2;
+  x_pixel = s->x * pad_to_pixel + pad_x_offset;
+  y_pixel = s->y * pad_to_pixel + pad_y_offset;
 
   // TODO: Get fancy and adjust color intensity using pressure
   forecolor = color[s->track_id % COLOR_COUNT].pixel;
   XSetForeground(dpy, gc, forecolor);
 
-  XFillArc(dpy, w, gc, x, y, width, height, 0, 360 * 64);
+  XFillArc(dpy, w, gc, x_pixel, y_pixel, width, height, 0, 360 * 64);
 }
 
 static void MtStateInit(struct mt_state *s) {
@@ -576,6 +603,12 @@ static void MtStatePaint(struct mt_state *s) {
   int i;
   if (!persist)
     XClearWindow(dpy, w);
+
+  XSetForeground(dpy, gc, color[WHITE_INDEX].pixel);
+  XDrawRectangle(dpy, w, gc, pad_x_offset, pad_y_offset,
+                 w_width - pad_x_offset * 2 - 1,
+                 w_height - pad_y_offset * 2 - 1);
+
   for (i = slot_min; i <= slot_max; i++)
     MtSlotPaint(&s->slot[i - slot_min]);
   XFlush(dpy);
@@ -1005,6 +1038,7 @@ int main(int argc, char **argv) {
   }
 
   MtStateInit(&mt_state);
+  InitPreserveRatio();
 
   x11_fd = ConnectionNumber(dpy);
   max_fd = (x11_fd > fd) ? x11_fd : fd;
