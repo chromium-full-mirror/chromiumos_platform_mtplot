@@ -1107,6 +1107,8 @@ int main(int argc, char **argv) {
             clickclear = !clickclear;
           else if (ks == XK_p)
             persist = !persist;
+          else if (ks == XK_q)
+            return 0;
         }
       }
     }
