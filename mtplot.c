@@ -585,12 +585,15 @@ static void MtSlotPaint(struct mt_slot *s) {
         (float)(s->pressure - pressure_min) / (pressure_max - pressure_min + 1);
     height = 50.0 *
         (float)(s->pressure - pressure_min) / (pressure_max - pressure_min + 1);
-  } else {
+  } else if (s->touch_major) {
     // In case we don't have pressure reading, use touch_major instead.
     width = 50.0 * (float)(s->touch_major - touch_major_min) /
         (touch_major_max - touch_major_min + 1);
     height = 50.0 * (float)(s->touch_major - touch_major_min) /
         (touch_major_max - touch_major_min + 1);
+  } else {
+    width = 10;
+    height = 10;
   }
 
   x_pixel = s->x * pad_to_pixel + pad_x_offset;
