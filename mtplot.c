@@ -16,6 +16,7 @@
 #include <getopt.h>
 #include <limits.h>
 #include <linux/input.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +53,8 @@
 #ifndef ABS_MT_SLOT
 #define ABS_MT_SLOT 47
 #endif
+
+#define MAX_SLOT_COUNT 64
 
 /* Set clockid to be used for timestamps */
 #ifndef EVIOCSCLOCKID
@@ -440,6 +443,12 @@ struct mt_state {
   struct mt_slot *slot;
 };
 
+typedef struct {
+  uint32_t code;
+  int32_t values[MAX_SLOT_COUNT];
+} MTSlotInfo, *MTSlotInfoPtr;
+
+
 // Program Options
 bool clickclear = true;
 bool monotonic = true;
@@ -488,6 +497,7 @@ static bool has_mt_slot = false;
 
 static unsigned int w_width;
 static unsigned int w_height;
+
 
 static Display *InitDisplay(const char *displayname, const char *geometry) {
   Window root;
@@ -606,12 +616,51 @@ static void MtSlotPaint(struct mt_slot *s) {
   XFillArc(dpy, w, gc, x_pixel, y_pixel, width, height, 0, 360 * 64);
 }
 
-static void MtStateInit(struct mt_state *s) {
+int ProbeAbsInfo(int fd, struct input_absinfo *absinfo, size_t key) {
+  if (ioctl(fd, EVIOCGABS(key), absinfo) < 0) {
+    perror("Error in getting info in ProbeAbsInfo");
+    return false;
+  }
+  return true;
+}
+
+int ProbeMTSlot(int fd, MTSlotInfoPtr req, uint32_t code) {
+  req->code = code;
+  if (ioctl(fd, EVIOCGMTSLOTS((sizeof(*req))), req) < 0) {
+    perror("Error in getting info in ProbeMTSlot");
+    return false;
+  }
+  return true;
+}
+
+static void MtStateInit(struct mt_state *s, char *filename) {
   int i;
+  int fd = open(filename, O_RDWR | O_NONBLOCK, 0);
+  struct input_absinfo absinfo;
+  struct mt_slot *current_slot;
+  MTSlotInfo req;
+
   s->current = 0;
   s->slot = calloc(slot_max - slot_min + 1, sizeof(struct mt_slot));
   for (i = slot_min; i <= slot_max; i++)
     MtSlotInit(&s->slot[i - slot_min]);
+
+  // Synchronize the last slot number with the kernel evdev driver.
+  if (ProbeAbsInfo(fd, &absinfo, ABS_MT_SLOT))
+    s->current = absinfo.value;
+  current_slot = &s->slot[s->current];
+
+  // Synchronize last X with the kernel evdev driver.
+  if (ProbeMTSlot(fd, &req, ABS_MT_POSITION_X))
+    current_slot->x = req.values[s->current];
+
+  // Synchronize last Y with the kernel evdev driver.
+  if (ProbeMTSlot(fd, &req, ABS_MT_POSITION_Y))
+    current_slot->y = req.values[s->current];
+
+  // Synchronize last PRESSURE with the kernel evdev driver.
+  if (ProbeMTSlot(fd, &req, ABS_MT_PRESSURE))
+    current_slot->pressure  = req.values[s->current];
 }
 
 static void MtStatePaint(struct mt_state *s) {
@@ -1133,8 +1182,6 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  free(filename);
-
   if (!isatty(fileno(stdout)))
     setbuf(stdout, NULL);
 
@@ -1165,8 +1212,9 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  MtStateInit(&mt_state);
+  MtStateInit(&mt_state, filename);
   InitPreserveRatio();
+  free(filename);
 
   x11_fd = ConnectionNumber(dpy);
   max_fd = (x11_fd > fd) ? x11_fd : fd;
