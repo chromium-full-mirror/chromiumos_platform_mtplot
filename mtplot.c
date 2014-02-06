@@ -1120,6 +1120,8 @@ int main(int argc, char **argv) {
   char output[PATH_MAX];
 
   strcpy(output, DEFAULT_OUTPUT_DIR);
+  /* Set DISPLAY to :0 if it's not already set */
+  setenv("DISPLAY", ":0", 0);
 
   while (1) {
     int c = getopt_long_only(argc, argv, "c:d:g:m:o:p:", long_options, NULL);
@@ -1215,6 +1217,9 @@ int main(int argc, char **argv) {
   MtStateInit(&mt_state, filename);
   InitPreserveRatio();
   free(filename);
+
+  printf("If the display isn't showing, this command may help:\n"
+         "echo 0 > /sys/module/i915/parameters/i915_enable_fbc\n");
 
   x11_fd = ConnectionNumber(dpy);
   max_fd = (x11_fd > fd) ? x11_fd : fd;
