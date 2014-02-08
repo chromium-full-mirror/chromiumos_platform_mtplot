@@ -453,6 +453,7 @@ typedef struct {
 bool clickclear = true;
 bool monotonic = true;
 bool persist = true;
+bool showclicks = false;
 
 static Display *dpy;
 static unsigned long blackColor;
@@ -678,14 +679,44 @@ static void MtStatePaint(struct mt_state *s) {
   XFlush(dpy);
 }
 
+static void MtClickPaint(struct mt_state *s) {
+  int i;
+
+  XSetForeground(dpy, gc, color[WHITE_INDEX].pixel);
+  XDrawRectangle(dpy, w, gc, pad_x_offset, pad_y_offset,
+                 w_width - pad_x_offset * 2 - 1,
+                 w_height - pad_y_offset * 2 - 1);
+  for (i = slot_min; i <= slot_max; i++) {
+    int x_pixel, y_pixel;
+    unsigned long forecolor;
+    struct mt_slot finger = s->slot[i - slot_min];
+
+    if (finger.track_id == -1)
+        continue;
+
+    y_pixel = finger.y * pad_to_pixel + pad_y_offset;
+    x_pixel = finger.x * pad_to_pixel + pad_x_offset;
+    forecolor = color[finger.track_id % COLOR_COUNT].pixel;
+
+    XSetForeground(dpy, gc, forecolor);
+    XSetLineAttributes(dpy, gc, 5, LineSolid, CapRound, JoinRound);
+    XDrawRectangle(dpy, w, gc, x_pixel, y_pixel, 15, 15);
+  }
+  XFlush(dpy);
+}
+
 static void ProcessSynReport(struct mt_state *s, struct input_event *e) {
   MtStatePaint(s);
 }
 
 
 static void ProcessKey(struct mt_state *s, struct input_event *e) {
-  if (e->code == BTN_LEFT && clickclear)
-    XClearWindow(dpy, w);
+  if (e->code == BTN_LEFT) {
+    if (clickclear)
+        XClearWindow(dpy, w);
+    if (showclicks)
+        MtClickPaint(s);
+  }
 }
 
 // Update all active slots with the same ABS_PRESSURE value as it is a
@@ -1021,6 +1052,7 @@ static const struct option long_options[] = {
   { "monotonic", optional_argument, NULL, 'm' },
   { "output", optional_argument, NULL, 'o' },
   { "persist", optional_argument, NULL, 'p' },
+  { "showclicks", optional_argument, NULL, 's' },
   { 0, },
 };
 
@@ -1090,6 +1122,9 @@ static int Usage(void) {
   printf("   %s /dev/input/eventX [--display DISPLAY] [--monotonic] [--persist]\n",
          program_invocation_short_name);
   printf("\n");
+  printf(" -c, --clickclear[=0|1] =1: clicks clear the screen (default)\n"
+         "                        =0: clicks do not clear the screen\n"
+         "                            To toggle at runtime press 'c'\n");
   printf(" -g, --geometry[=wxh+x+y] : sets the window geometry\n");
   printf("                            e.g., 1280x800+0+0\n");
   printf(" -m, --monotonic[=0|1]  =1: requests input events with monotonic timestamps\n"
@@ -1100,9 +1135,8 @@ static int Usage(void) {
   printf(" -p, --persist[=0|1]    =1: display persistent trails for each contact (default)\n"
          "                        =0: only display the current contact positions\n"
          "                            To toggle at runtime press 'p'\n");
-  printf(" -c, --clickclear[=0|1] =1: clicks clear the screen (default)\n"
-         "                        =0: clicks do not clear the screen\n"
-         "                            To toggle at runtime press 'c'\n");
+  printf(" -s, --showclicks[=0|1] =1: clicks are shown visibly marked on screen\n"
+         "                        =0: clicks do not leave a visible mark\n");
 
   return EXIT_FAILURE;
 }
@@ -1124,7 +1158,7 @@ int main(int argc, char **argv) {
   setenv("DISPLAY", ":0", 0);
 
   while (1) {
-    int c = getopt_long_only(argc, argv, "c:d:g:m:o:p:", long_options, NULL);
+    int c = getopt_long_only(argc, argv, "c:d:g:m:o:p:s:", long_options, NULL);
     if (c == -1)
       break;
     switch (c) {
@@ -1147,6 +1181,9 @@ int main(int argc, char **argv) {
         break;
       case 'p':
         persist = (optarg) ? atoi(optarg) : true;
+        break;
+      case 's':
+        showclicks = (optarg) ? atoi(optarg) : true;
         break;
       default:  // Fall through case
         printf("Unknown option '%c'\n", c);
