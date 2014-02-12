@@ -500,6 +500,18 @@ static unsigned int w_width;
 static unsigned int w_height;
 
 
+static void MtClear() {
+  XClearWindow(dpy, w);
+
+  XSetForeground(dpy, gc, color[WHITE_INDEX].pixel);
+  XSetLineAttributes(dpy, gc, 1, LineSolid, CapRound, JoinRound);
+  XDrawRectangle(dpy, w, gc, pad_x_offset, pad_y_offset,
+                 w_width - pad_x_offset * 2 - 1,
+                 w_height - pad_y_offset * 2 - 1);
+  XFlush(dpy);
+}
+
+
 static Display *InitDisplay(const char *displayname, const char *geometry) {
   Window root;
   int x, y;
@@ -667,12 +679,7 @@ static void MtStateInit(struct mt_state *s, char *filename) {
 static void MtStatePaint(struct mt_state *s) {
   int i;
   if (!persist)
-    XClearWindow(dpy, w);
-
-  XSetForeground(dpy, gc, color[WHITE_INDEX].pixel);
-  XDrawRectangle(dpy, w, gc, pad_x_offset, pad_y_offset,
-                 w_width - pad_x_offset * 2 - 1,
-                 w_height - pad_y_offset * 2 - 1);
+    MtClear(dpy, w);
 
   for (i = slot_min; i <= slot_max; i++)
     MtSlotPaint(&s->slot[i - slot_min]);
@@ -682,10 +689,6 @@ static void MtStatePaint(struct mt_state *s) {
 static void MtClickPaint(struct mt_state *s) {
   int i;
 
-  XSetForeground(dpy, gc, color[WHITE_INDEX].pixel);
-  XDrawRectangle(dpy, w, gc, pad_x_offset, pad_y_offset,
-                 w_width - pad_x_offset * 2 - 1,
-                 w_height - pad_y_offset * 2 - 1);
   for (i = slot_min; i <= slot_max; i++) {
     int x_pixel, y_pixel;
     unsigned long forecolor;
@@ -713,7 +716,7 @@ static void ProcessSynReport(struct mt_state *s, struct input_event *e) {
 static void ProcessKey(struct mt_state *s, struct input_event *e) {
   if (e->code == BTN_LEFT) {
     if (clickclear)
-        XClearWindow(dpy, w);
+        MtClear();
     if (showclicks)
         MtClickPaint(s);
   }
@@ -1261,6 +1264,7 @@ int main(int argc, char **argv) {
   x11_fd = ConnectionNumber(dpy);
   max_fd = (x11_fd > fd) ? x11_fd : fd;
 
+  MtClear();
   while (1) {
     int rc;
 
@@ -1320,7 +1324,7 @@ int main(int argc, char **argv) {
           XKeyEvent xke = ev.xkey;
           KeySym ks = XLookupKeysym(&xke, 0);
           if (ks == XK_Escape)
-            XClearWindow(dpy, w);
+            MtClear();
           else if (ks == XK_c)
             clickclear = !clickclear;
           else if (ks == XK_p)
