@@ -454,6 +454,7 @@ bool clickclear = true;
 bool monotonic = true;
 bool persist = true;
 bool showclicks = false;
+bool single_pressure = false;
 
 static Display *dpy;
 static unsigned long blackColor;
@@ -798,7 +799,7 @@ static void ProcessAbs(struct mt_state *s, struct input_event *e) {
       slot->track_id = e->value;
       break;
     case ABS_MT_PRESSURE:
-      slot->pressure = e->value;
+      slot->pressure = single_pressure ? 3 : e->value;
       break;
     case ABS_PRESSURE:
       if (single_pressure_device)
@@ -1056,6 +1057,7 @@ static const struct option long_options[] = {
   { "output", optional_argument, NULL, 'o' },
   { "persist", optional_argument, NULL, 'p' },
   { "showclicks", optional_argument, NULL, 's' },
+  { "singlepressure", optional_argument, NULL, 'a' },
   { 0, },
 };
 
@@ -1140,6 +1142,10 @@ static int Usage(void) {
          "                            To toggle at runtime press 'p'\n");
   printf(" -s, --showclicks[=0|1] =1: clicks are shown visibly marked on screen\n"
          "                        =0: clicks do not leave a visible mark\n");
+  printf(" -a, --singlepressure[=0|1] =1: "
+         "All points are drawn with same pressure\n"
+         "                            =0: "
+         "Point size indicates pressure (default)\n");
 
   return EXIT_FAILURE;
 }
@@ -1165,6 +1171,9 @@ int main(int argc, char **argv) {
     if (c == -1)
       break;
     switch (c) {
+      case 'a':
+        single_pressure = (optarg) ? atoi(optarg) : true;
+        break;
       case 'c':
         clickclear = (optarg) ? atoi(optarg) : true;
         break;
@@ -1325,6 +1334,8 @@ int main(int argc, char **argv) {
           KeySym ks = XLookupKeysym(&xke, 0);
           if (ks == XK_Escape)
             MtClear();
+          else if (ks == XK_a)
+            single_pressure = !single_pressure;
           else if (ks == XK_c)
             clickclear = !clickclear;
           else if (ks == XK_p)
